@@ -1,12 +1,21 @@
 import json
 import logging
 import mimetypes
+import socket
 import urllib.parse
-from pathlib import Path
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+from threading import Thread
 
 
 BASE_DIR = Path()
+BUFFER_SIZE = 1024
+HTTP_PORT = 3000
+HTTP_HOST = '0.0.0.0'
+SOCKET_HOST = 'localhost'
+SOCKET_PORT = 5000
+DATA_FILE = 'storage/data.json'
 
 
 class HttpHandler(BaseHTTPRequestHandler):
@@ -29,17 +38,9 @@ class HttpHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         size = self.headers.get('Content-Length')
         data = self.rfile.read(int(size))
-        print(data)
-        parse_data = urllib.parse.unquote_plus(data.decode())
-        try:
-            parse_dict = {key: value for key, value in [el.split('=') for el in parse_data.split('&')]}
-            print(parse_dict)
-            with open('storage/data.json', 'w', encoding='utf-8') as file:
-                json.dump(parse_dict, file, ensure_ascii=False, indent=4)
-        except ValueError as e:
-            logging.error(e)
-        except OSError as e:
-            logging.error(e)
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client_socket.sendto(data, (SOCKET_HOST, SOCKET_PORT))
+        client_socket.close()
         self.send_response(302)
         self.send_header('Location', '/message.html')
         self.end_headers()
@@ -63,14 +64,55 @@ class HttpHandler(BaseHTTPRequestHandler):
             self.wfile.write(file.read())
 
 
-def run_server():
-    server_address = ('localhost', 3000)
+def send_data_from_form(data):
+    parse_data = urllib.parse.unquote_plus(data.decode())
+    try:
+        parse_dict = {key: value for key, value in [el.split('=') for el in parse_data.split('&')]}
+        if Path(DATA_FILE).exists():
+            with open(DATA_FILE, 'r', encoding='utf-8') as file:
+                existing_data = json.load(file)
+        else:
+            existing_data = {}
+        data_received_at = str(datetime.now())
+        existing_data[data_received_at] = parse_dict
+        with open(DATA_FILE, 'w', encoding='utf-8') as file:
+            json.dump(existing_data, file, ensure_ascii=False, indent=4)
+    except ValueError as e:
+        logging.error(e)
+    except OSError as e:
+        logging.error(e)
+
+
+def run_socket_server(host, port):
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server_socket.bind((host, port))
+    logging.info("Starting UDP socket server")
+    try:
+        while True:
+            message, address = server_socket.recvfrom(BUFFER_SIZE)
+            logging.info(f"Socket received {address}: {message} ")
+            send_data_from_form(message)
+    except KeyboardInterrupt:
+        server_socket.close()
+    finally:
+        server_socket.close()
+
+
+def run_http_server(host, port):
+    server_address = (host, port)
     http_server = HTTPServer(server_address, HttpHandler)
     try:
+        logging.info("Starting HTTP socket server")
         http_server.serve_forever()
     except KeyboardInterrupt:
+        http_server.server_close()
+    finally:
         http_server.server_close()
 
 
 if __name__ == '__main__':
-    run_server()
+    logging.basicConfig(level=logging.DEBUG, format='%(threadName)s %(message)s')
+    server_http = Thread(target=run_http_server, args=(HTTP_HOST, HTTP_PORT))
+    server_http.start()
+    server_socket = Thread(target=run_socket_server, args=(SOCKET_HOST, SOCKET_PORT))
+    server_socket.start()
