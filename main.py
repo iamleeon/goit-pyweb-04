@@ -1,6 +1,7 @@
 import json
 import logging
 import mimetypes
+import os
 import socket
 import urllib.parse
 from datetime import datetime
@@ -72,6 +73,7 @@ def send_data_from_form(data):
             with open(DATA_FILE, 'r', encoding='utf-8') as file:
                 existing_data = json.load(file)
         else:
+            os.mkdir('storage')
             existing_data = {}
         data_received_at = str(datetime.now())
         existing_data[data_received_at] = parse_dict
