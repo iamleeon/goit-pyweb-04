@@ -69,11 +69,12 @@ def send_data_from_form(data):
     parse_data = urllib.parse.unquote_plus(data.decode())
     try:
         parse_dict = {key: value for key, value in [el.split('=') for el in parse_data.split('&')]}
+        storage_path = Path('storage')
+        storage_path.mkdir(parents=True, exist_ok=True)
         if Path(DATA_FILE).exists():
             with open(DATA_FILE, 'r', encoding='utf-8') as file:
                 existing_data = json.load(file)
         else:
-            os.mkdir('storage')
             existing_data = {}
         data_received_at = str(datetime.now())
         existing_data[data_received_at] = parse_dict
